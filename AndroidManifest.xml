@@ -38,6 +38,12 @@
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
             android:excludeFromRecents="true" />
 
+        <!-- Root of the task Home Assistant runs in (see HostActivity). -->
+        <activity android:name=".HostActivity" android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:taskAffinity="house.pape.switcher.ha"
+            android:excludeFromRecents="true" />
+
         <service android:name=".EdgeService" android:exported="false" />
 
         <receiver android:name=".BootReceiver" android:exported="true">

@@ -149,14 +149,28 @@ public class EdgeService extends Service {
         if (front == null) front = SKYLIGHT;   // nothing recorded yet: assume the home screen
         Log.i(TAG, "swipe " + (direction < 0 ? "left" : "right") + "; in front: " + front);
         if (target.equals(front)) return;
-        Intent i = getPackageManager().getLaunchIntentForPackage(target);
-        if (i == null) {
+        if (getPackageManager().getLaunchIntentForPackage(target) == null) {
             Log.w(TAG, target + " is not installed");
             return;
         }
-        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
-        slider.slide(front, target, direction, () -> startActivity(i),
+        slider.slide(front, target, direction, () -> show(target),
                 () -> target.equals(foreground(this, 10_000)));
+    }
+
+    /**
+     * Brings `target` to the front. Home Assistant runs in our own task (HostActivity), so
+     * going back to the Skylight app just sends that task behind it, without restarting it.
+     */
+    private void show(String target) {
+        if (HA.equals(target)) {
+            if (HostActivity.bringToFront()) return;
+            startActivity(new Intent(this, HostActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } else {
+            if (HostActivity.sendToBack()) return;
+            Intent i = getPackageManager().getLaunchIntentForPackage(target);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+            startActivity(i);
+        }
     }
 
     /** The package of the last activity brought to the front in the last `ms`, or null. */

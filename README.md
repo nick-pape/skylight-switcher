@@ -21,7 +21,14 @@ app slides in from the right) and doesn't let an ordinary app change or turn
 it off, so the slide is faked: the app mirrors the screen, and on a switch it
 covers the screen with snapshots of both apps, switches underneath and slides
 the snapshots. The first switch to each app after the switcher starts has no
-snapshot of it yet and plays the system's transition. It runs as a foreground service and starts on boot.
+snapshot of it yet and plays the system's transition.
+
+Home Assistant runs in a task of the switcher's own (`HostActivity`), so going
+back to the Skylight app just sends that task behind it. Starting the Skylight
+app instead goes through its launcher activity, a trampoline that restarts the
+calendar and takes about 1.5 s to draw, which showed as a second animation
+after the slide. The first switch to Home Assistant after the switcher starts
+opens a fresh copy of it, which takes a few seconds to load. It runs as a foreground service and starts on boot.
 
 If the touchscreen can't be read (another device, or a firmware update that
 tightens permissions), it falls back to two invisible strips on the left and
