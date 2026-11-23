@@ -23,9 +23,9 @@ import java.io.File;
 /**
  * Switches apps on a two- or three-finger horizontal swipe anywhere on screen, read from
  * the raw touchscreen events (see TouchReader). If the touchscreen can't be read, falls
- * back to two invisible edge strips that switch on an inward swipe. Either way it switches
- * to Home Assistant when the Skylight app is in front, otherwise back to the Skylight app
- * (the home screen).
+ * back to two invisible edge strips that switch on an inward swipe. Swiping left goes to
+ * Home Assistant and swiping right goes back to the Skylight app (the home screen); see
+ * swipe().
  */
 public class EdgeService extends Service {
     private static final String TAG = "SkylightSwitcher";
@@ -55,8 +55,8 @@ public class EdgeService extends Service {
         if (touch != null && touch.canRead()) {
             Handler main = new Handler(Looper.getMainLooper());
             reader = new TouchReader(touch, SWIPE_UNITS, (fingers, direction) -> main.post(() -> {
-                Log.i(TAG, fingers + "-finger swipe " + (direction > 0 ? "right" : "left"));
-                toggle(this);
+                Log.i(TAG, fingers + "-finger swipe");
+                swipe(this, direction);
             }));
             reader.start();
         } else {
@@ -111,7 +111,7 @@ public class EdgeService extends Service {
                     case MotionEvent.ACTION_MOVE:
                         if (!fired && (e.getRawX() - startX) * direction > swipe) {
                             fired = true;
-                            toggle(EdgeService.this);
+                            swipe(EdgeService.this, direction);
                         }
                         return true;
                     default:
@@ -123,11 +123,19 @@ public class EdgeService extends Service {
         return v;
     }
 
-    static void toggle(Context ctx) {
+    /**
+     * The two apps sit side by side like Mac spaces: Skylight on the left, Home Assistant
+     * on the right. Moving the fingers left (direction -1) goes to the app on the right,
+     * moving them right goes back; there's no wrapping around past either end.
+     */
+    static void swipe(Context ctx, int direction) {
+        String target = direction < 0 ? HA : SKYLIGHT;
         String front = foreground(ctx);
-        Log.i(TAG, "swipe; in front: " + front);
+        if (front == null) front = SKYLIGHT;   // nothing recorded yet: assume the home screen
+        Log.i(TAG, "swipe " + (direction < 0 ? "left" : "right") + "; in front: " + front);
+        if (target.equals(front)) return;
         Intent i;
-        if (SKYLIGHT.equals(front) || front == null) {
+        if (target.equals(HA)) {
             i = ctx.getPackageManager().getLaunchIntentForPackage(HA);
             if (i == null) {
                 Log.w(TAG, HA + " is not installed");

@@ -10,13 +10,15 @@ recents come from the launcher. An ordinary app can't see touches meant for
 other apps, but on the Skylight the touchscreen's event device
 (`/dev/input/event3`) is world-readable and SELinux is permissive, so this app
 reads the raw touch events itself. The touches still reach the apps as normal.
-A multi-finger swipe brings the Home Assistant app to the front when the
-Skylight app is showing, and goes back to the Skylight app (the home screen)
-otherwise. It runs as a foreground service and starts on boot.
+The two apps sit side by side like Mac spaces, Skylight on the left and Home
+Assistant on the right: swipe left to go to Home Assistant, swipe right to go
+back to the Skylight app (the home screen). Swiping past either end does
+nothing; it doesn't wrap around. It runs as a foreground service and starts on boot.
 
 If the touchscreen can't be read (another device, or a firmware update that
 tightens permissions), it falls back to two invisible strips on the left and
-right edges: swipe inward from either one to switch.
+right edges: swipe inward from the right edge (moving left) for Home
+Assistant, or from the left edge (moving right) for the Skylight app.
 
 It needs ADB access to the Skylight once, to install it and grant two
 permissions:
