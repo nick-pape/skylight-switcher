@@ -13,7 +13,8 @@ reads the raw touch events itself. The touches still reach the apps as normal.
 The two apps sit side by side like Mac spaces, Skylight on the left and Home
 Assistant on the right: swipe left to go to Home Assistant, swipe right to go
 back to the Skylight app (the home screen). Swiping past either end does
-nothing; it doesn't wrap around. It runs as a foreground service and starts on boot.
+nothing; it doesn't wrap around. The switch slides the same way your fingers
+moved. It runs as a foreground service and starts on boot.
 
 If the touchscreen can't be read (another device, or a firmware update that
 tightens permissions), it falls back to two invisible strips on the left and

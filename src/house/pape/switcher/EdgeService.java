@@ -1,5 +1,6 @@
 package house.pape.switcher;
 
+import android.app.ActivityOptions;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -146,7 +147,16 @@ public class EdgeService extends Service {
             i = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);
         }
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
-        ctx.startActivity(i);
+        // Slide the way the fingers moved: the new app comes in from the side they moved away from.
+        boolean left = direction < 0;
+        ctx.startActivity(i, ActivityOptions.makeCustomAnimation(ctx,
+                anim(ctx, left ? "slide_in_right" : "slide_in_left"),
+                anim(ctx, left ? "slide_out_left" : "slide_out_right")).toBundle());
+    }
+
+    /** An animation from res/anim (looked up by name: the build doesn't generate R). */
+    private static int anim(Context ctx, String name) {
+        return ctx.getResources().getIdentifier(name, "anim", ctx.getPackageName());
     }
 
     /** The package of the last activity brought to the front, from the usage events of the last week. */

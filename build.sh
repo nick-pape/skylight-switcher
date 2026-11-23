@@ -24,7 +24,8 @@ AAPT2=$(tool aapt2); D8=$(tool d8); ZIPALIGN=$(tool zipalign); APKSIGNER=$(tool 
 rm -rf build && mkdir -p build/classes build/dex
 javac -encoding UTF-8 -source 8 -target 8 -Xlint:-options -cp "$ANDROID_JAR" -d build/classes $(find src -name '*.java')
 "$D8" --min-api 26 --lib "$ANDROID_JAR" --output build/dex $(find build/classes -name '*.class')
-"$AAPT2" link -o build/unsigned.apk -I "$ANDROID_JAR" --manifest AndroidManifest.xml
+"$AAPT2" compile --dir res -o build/res.zip
+"$AAPT2" link -o build/unsigned.apk -I "$ANDROID_JAR" --manifest AndroidManifest.xml build/res.zip
 (cd build/dex && jar uMf ../unsigned.apk classes.dex)
 "$ZIPALIGN" -f 4 build/unsigned.apk build/aligned.apk
 if [ ! -f "$KEYSTORE" ]; then
