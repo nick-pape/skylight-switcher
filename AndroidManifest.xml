@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Swipe in from the left or right screen edge to switch between the Skylight app (the
+  Swipe left or right with two or three fingers to switch between the Skylight app (the
   home screen) and the Home Assistant app. The Skylight has no nav bar, recents or
-  gesture navigation, so this draws its own invisible edge strips.
+  gesture navigation, so this reads the raw touchscreen events itself (see TouchReader).
 
   targetSdkVersion 28 keeps starting a foreground service at boot simple. Two permissions
-  are granted once over adb (see build.sh): SYSTEM_ALERT_WINDOW for the strips (it also
-  lets the service start activities from the background) and GET_USAGE_STATS to see
+  are granted once over adb (see build.sh): SYSTEM_ALERT_WINDOW so the service can start
+  activities from the background (and draw the fallback edge strips) and GET_USAGE_STATS to see
   which app is in front.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="house.pape.switcher"
-    android:versionCode="1"
+    android:versionCode="2"
     android:versionName="0.1">
 
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="28" />

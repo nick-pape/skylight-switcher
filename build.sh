@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds build/skylight-switcher.apk: swipe in from the left or right edge to switch
+# Builds build/skylight-switcher.apk: a two- or three-finger swipe switches
 # between the Skylight app and the Home Assistant app. Needs a JDK 17 and the Android
 # SDK's API 28 platform and build-tools.
 #

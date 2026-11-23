@@ -6,19 +6,26 @@ import android.app.NotificationManager;
 import android.app.Service;
 import android.app.usage.UsageEvents;
 import android.app.usage.UsageStatsManager;
+import android.content.Context;
 import android.content.Intent;
 import android.graphics.PixelFormat;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 
+import java.io.File;
+
 /**
- * Two invisible strips on the left and right screen edges. Swiping inward from either one
- * switches apps: to Home Assistant when the Skylight app is in front, otherwise back to
- * the Skylight app (the home screen).
+ * Switches apps on a two- or three-finger horizontal swipe anywhere on screen, read from
+ * the raw touchscreen events (see TouchReader). If the touchscreen can't be read, falls
+ * back to two invisible edge strips that switch on an inward swipe. Either way it switches
+ * to Home Assistant when the Skylight app is in front, otherwise back to the Skylight app
+ * (the home screen).
  */
 public class EdgeService extends Service {
     private static final String TAG = "SkylightSwitcher";
@@ -27,8 +34,12 @@ public class EdgeService extends Service {
     /** Strip width and the inward travel that counts as a swipe, in dp. */
     private static final int STRIP_DP = 16, SWIPE_DP = 60;
 
+    /** Travel of a multi-finger swipe, in touchscreen units (about pixels on the Skylight). */
+    private static final int SWIPE_UNITS = 250;
+
     private WindowManager wm;
     private View left, right;
+    private TouchReader reader;
 
     @Override
     public void onCreate() {
@@ -40,9 +51,20 @@ public class EdgeService extends Service {
                 .setSmallIcon(android.R.drawable.ic_menu_rotate)
                 .setOngoing(true)
                 .build());
-        wm = getSystemService(WindowManager.class);
-        left = strip(Gravity.LEFT, +1);
-        right = strip(Gravity.RIGHT, -1);
+        File touch = TouchReader.findTouchscreen();
+        if (touch != null && touch.canRead()) {
+            Handler main = new Handler(Looper.getMainLooper());
+            reader = new TouchReader(touch, SWIPE_UNITS, (fingers, direction) -> main.post(() -> {
+                Log.i(TAG, fingers + "-finger swipe " + (direction > 0 ? "right" : "left"));
+                toggle(this);
+            }));
+            reader.start();
+        } else {
+            Log.w(TAG, "no readable touchscreen (" + touch + "); using edge strips");
+            wm = getSystemService(WindowManager.class);
+            left = strip(Gravity.LEFT, +1);
+            right = strip(Gravity.RIGHT, -1);
+        }
     }
 
     @Override
@@ -52,6 +74,7 @@ public class EdgeService extends Service {
 
     @Override
     public void onDestroy() {
+        if (reader != null) reader.interrupt();
         for (View v : new View[] {left, right}) {
             if (v != null) wm.removeView(v);
         }
@@ -88,7 +111,7 @@ public class EdgeService extends Service {
                     case MotionEvent.ACTION_MOVE:
                         if (!fired && (e.getRawX() - startX) * direction > swipe) {
                             fired = true;
-                            toggle();
+                            toggle(EdgeService.this);
                         }
                         return true;
                     default:
@@ -100,12 +123,12 @@ public class EdgeService extends Service {
         return v;
     }
 
-    private void toggle() {
-        String front = foreground();
+    static void toggle(Context ctx) {
+        String front = foreground(ctx);
         Log.i(TAG, "swipe; in front: " + front);
         Intent i;
         if (SKYLIGHT.equals(front) || front == null) {
-            i = getPackageManager().getLaunchIntentForPackage(HA);
+            i = ctx.getPackageManager().getLaunchIntentForPackage(HA);
             if (i == null) {
                 Log.w(TAG, HA + " is not installed");
                 return;
@@ -115,19 +138,19 @@ public class EdgeService extends Service {
             i = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);
         }
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
-        startActivity(i);
+        ctx.startActivity(i);
     }
 
-    /** The package of the last activity brought to the front, from the usage events of the last hour. */
-    private String foreground() {
-        UsageStatsManager usm = getSystemService(UsageStatsManager.class);
+    /** The package of the last activity brought to the front, from the usage events of the last week. */
+    private static String foreground(Context ctx) {
+        UsageStatsManager usm = ctx.getSystemService(UsageStatsManager.class);
         long now = System.currentTimeMillis();
-        UsageEvents events = usm.queryEvents(now - 3_600_000, now);
+        UsageEvents events = usm.queryEvents(now - 7 * 86_400_000L, now);
         UsageEvents.Event e = new UsageEvents.Event();
         String last = null;
         while (events.hasNextEvent()) {
             events.getNextEvent(e);
-            if (e.getEventType() == UsageEvents.Event.MOVE_TO_FOREGROUND && !getPackageName().equals(e.getPackageName())) {
+            if (e.getEventType() == UsageEvents.Event.MOVE_TO_FOREGROUND && !ctx.getPackageName().equals(e.getPackageName())) {
                 last = e.getPackageName();
             }
         }

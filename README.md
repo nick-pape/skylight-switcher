@@ -1,21 +1,28 @@
 # skylight-switcher
 
 A tiny Android app for a Skylight Calendar (15", model D156, Android 12) that
-switches between the Skylight app and the Home Assistant app with a swipe.
+switches between the Skylight app and the Home Assistant app with a two- or
+three-finger swipe left or right, anywhere on screen.
 
 The Skylight has no navigation bar, no recents screen and no gesture
 navigation: its own app is the home screen, and Android 12's gestures and
-recents come from the launcher. So this app draws two invisible strips on the
-left and right screen edges. Swiping inward from either one brings the Home
-Assistant app to the front when the Skylight app is showing, and goes back to
-the Skylight app (the home screen) otherwise. It runs as a foreground service
-and starts on boot.
+recents come from the launcher. An ordinary app can't see touches meant for
+other apps, but on the Skylight the touchscreen's event device
+(`/dev/input/event3`) is world-readable and SELinux is permissive, so this app
+reads the raw touch events itself. The touches still reach the apps as normal.
+A multi-finger swipe brings the Home Assistant app to the front when the
+Skylight app is showing, and goes back to the Skylight app (the home screen)
+otherwise. It runs as a foreground service and starts on boot.
+
+If the touchscreen can't be read (another device, or a firmware update that
+tightens permissions), it falls back to two invisible strips on the left and
+right edges: swipe inward from either one to switch.
 
 It needs ADB access to the Skylight once, to install it and grant two
 permissions:
 
-- **Display over other apps** (`SYSTEM_ALERT_WINDOW`), for the edge strips.
-  It also lets the service bring apps to the front from the background.
+- **Display over other apps** (`SYSTEM_ALERT_WINDOW`), which lets the service
+  bring apps to the front from the background (and draw the fallback strips).
 - **Usage access** (`GET_USAGE_STATS`), to see which app is in front.
 
 ## Build
@@ -50,9 +57,13 @@ an app that was never opened.
 - The Home Assistant package is `io.homeassistant.companion.android.minimal`
   (the build without Google services, which the Skylight lacks); change
   `EdgeService.HA` for the full build.
-- The strips are 16 dp wide and a swipe has to travel 60 dp inward
+- A swipe fires when the fingers' average position moves 250 touchscreen units
+  sideways (about 250 px; `SWIPE_UNITS`) and more than twice as far as it moves
+  up or down, so pinches and vertical scrolls don't count. The app under your
+  fingers still gets the swipe too.
+- The fallback strips are 16 dp wide and a swipe has to travel 60 dp inward
   (`STRIP_DP`, `SWIPE_DP`). Touches inside the strips don't reach the apps.
-- A two- or three-finger swipe anywhere on screen isn't possible for an
-  ordinary app: it would have to see every touch meant for the other apps.
-  That takes root, the ADB shell user, or accessibility touch exploration,
-  which changes how every tap works.
+- An accessibility service can detect multi-finger gestures, but only in touch
+  exploration mode (taps become select-then-double-tap). Android 11's
+  passthrough regions restore normal taps, but a full-screen passthrough region
+  also turns the gesture detection off, so that route doesn't work.
