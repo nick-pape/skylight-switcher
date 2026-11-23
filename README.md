@@ -13,20 +13,30 @@ reads the raw touch events itself. The touches still reach the apps as normal.
 The two apps sit side by side like Mac spaces, Skylight on the left and Home
 Assistant on the right: swipe left to go to Home Assistant, swipe right to go
 back to the Skylight app (the home screen). Swiping past either end does
-nothing; it doesn't wrap around. The switch slides the same way your fingers
-moved. It runs as a foreground service and starts on boot.
+nothing; it doesn't wrap around.
+
+The switch slides the same way your fingers moved. Android 12 always plays its
+own transition when another app comes to the front (on the Skylight the new
+app slides in from the right) and doesn't let an ordinary app change or turn
+it off, so the slide is faked: the app mirrors the screen, and on a switch it
+covers the screen with snapshots of both apps, switches underneath and slides
+the snapshots. The first switch to each app after the switcher starts has no
+snapshot of it yet and plays the system's transition. It runs as a foreground service and starts on boot.
 
 If the touchscreen can't be read (another device, or a firmware update that
 tightens permissions), it falls back to two invisible strips on the left and
 right edges: swipe inward from the right edge (moving left) for Home
 Assistant, or from the left edge (moving right) for the Skylight app.
 
-It needs ADB access to the Skylight once, to install it and grant two
+It needs ADB access to the Skylight once, to install it and grant three
 permissions:
 
 - **Display over other apps** (`SYSTEM_ALERT_WINDOW`), which lets the service
   bring apps to the front from the background (and draw the fallback strips).
 - **Usage access** (`GET_USAGE_STATS`), to see which app is in front.
+- **Screen capture** (`PROJECT_MEDIA`), for the slide's snapshots. Granted this
+  way, Android skips its consent dialog. Nothing leaves the device: the frames
+  only ever go to the overlay.
 
 ## Build
 
@@ -49,6 +59,7 @@ since updates must be signed with the same key.
 adb install -r build/skylight-switcher.apk
 adb shell appops set house.pape.switcher SYSTEM_ALERT_WINDOW allow
 adb shell appops set house.pape.switcher GET_USAGE_STATS allow
+adb shell appops set house.pape.switcher PROJECT_MEDIA allow
 adb shell am start -n house.pape.switcher/.MainActivity
 ```
 

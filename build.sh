@@ -7,6 +7,7 @@
 #   adb install -r build/skylight-switcher.apk
 #   adb shell appops set house.pape.switcher SYSTEM_ALERT_WINDOW allow
 #   adb shell appops set house.pape.switcher GET_USAGE_STATS allow
+#   adb shell appops set house.pape.switcher PROJECT_MEDIA allow
 #   adb shell am start -n house.pape.switcher/.MainActivity
 set -e
 cd "$(dirname "$0")"
@@ -24,8 +25,7 @@ AAPT2=$(tool aapt2); D8=$(tool d8); ZIPALIGN=$(tool zipalign); APKSIGNER=$(tool 
 rm -rf build && mkdir -p build/classes build/dex
 javac -encoding UTF-8 -source 8 -target 8 -Xlint:-options -cp "$ANDROID_JAR" -d build/classes $(find src -name '*.java')
 "$D8" --min-api 26 --lib "$ANDROID_JAR" --output build/dex $(find build/classes -name '*.class')
-"$AAPT2" compile --dir res -o build/res.zip
-"$AAPT2" link -o build/unsigned.apk -I "$ANDROID_JAR" --manifest AndroidManifest.xml build/res.zip
+"$AAPT2" link -o build/unsigned.apk -I "$ANDROID_JAR" --manifest AndroidManifest.xml
 (cd build/dex && jar uMf ../unsigned.apk classes.dex)
 "$ZIPALIGN" -f 4 build/unsigned.apk build/aligned.apk
 if [ ! -f "$KEYSTORE" ]; then

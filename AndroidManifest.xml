@@ -34,6 +34,10 @@
             </intent-filter>
         </activity>
 
+        <activity android:name=".CaptureActivity" android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true" />
+
         <service android:name=".EdgeService" android:exported="false" />
 
         <receiver android:name=".BootReceiver" android:exported="true">

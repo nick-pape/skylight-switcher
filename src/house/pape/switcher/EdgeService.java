@@ -1,6 +1,5 @@
 package house.pape.switcher;
 
-import android.app.ActivityOptions;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -10,6 +9,7 @@ import android.app.usage.UsageStatsManager;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.PixelFormat;
+import android.media.projection.MediaProjectionManager;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -26,7 +26,7 @@ import java.io.File;
  * the raw touchscreen events (see TouchReader). If the touchscreen can't be read, falls
  * back to two invisible edge strips that switch on an inward swipe. Swiping left goes to
  * Home Assistant and swiping right goes back to the Skylight app (the home screen); see
- * swipe().
+ * swipe(). Slider draws the slide.
  */
 public class EdgeService extends Service {
     private static final String TAG = "SkylightSwitcher";
@@ -41,6 +41,9 @@ public class EdgeService extends Service {
     private WindowManager wm;
     private View left, right;
     private TouchReader reader;
+    private Slider slider;
+
+    static final String EXTRA_CAPTURE_RESULT = "captureResult", EXTRA_CAPTURE_DATA = "captureData";
 
     @Override
     public void onCreate() {
@@ -52,17 +55,18 @@ public class EdgeService extends Service {
                 .setSmallIcon(android.R.drawable.ic_menu_rotate)
                 .setOngoing(true)
                 .build());
+        wm = getSystemService(WindowManager.class);
+        slider = new Slider(this);
         File touch = TouchReader.findTouchscreen();
         if (touch != null && touch.canRead()) {
             Handler main = new Handler(Looper.getMainLooper());
             reader = new TouchReader(touch, SWIPE_UNITS, (fingers, direction) -> main.post(() -> {
                 Log.i(TAG, fingers + "-finger swipe");
-                swipe(this, direction);
+                swipe(direction);
             }));
             reader.start();
         } else {
             Log.w(TAG, "no readable touchscreen (" + touch + "); using edge strips");
-            wm = getSystemService(WindowManager.class);
             left = strip(Gravity.LEFT, +1);
             right = strip(Gravity.RIGHT, -1);
         }
@@ -70,12 +74,22 @@ public class EdgeService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        if (intent != null && intent.hasExtra(EXTRA_CAPTURE_DATA)) {
+            MediaProjectionManager mpm = getSystemService(MediaProjectionManager.class);
+            slider.start(mpm.getMediaProjection(intent.getIntExtra(EXTRA_CAPTURE_RESULT, 0),
+                    intent.getParcelableExtra(EXTRA_CAPTURE_DATA)));
+        } else if (!slider.capturing()) {
+            // Get screen capture for the slide (see Slider); CaptureActivity calls back here.
+            startActivity(new Intent(this, CaptureActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION));
+        }
         return START_STICKY;
     }
 
     @Override
     public void onDestroy() {
         if (reader != null) reader.interrupt();
+        slider.stop();
         for (View v : new View[] {left, right}) {
             if (v != null) wm.removeView(v);
         }
@@ -112,7 +126,7 @@ public class EdgeService extends Service {
                     case MotionEvent.ACTION_MOVE:
                         if (!fired && (e.getRawX() - startX) * direction > swipe) {
                             fired = true;
-                            swipe(EdgeService.this, direction);
+                            swipe(direction);
                         }
                         return true;
                     default:
@@ -129,41 +143,27 @@ public class EdgeService extends Service {
      * on the right. Moving the fingers left (direction -1) goes to the app on the right,
      * moving them right goes back; there's no wrapping around past either end.
      */
-    static void swipe(Context ctx, int direction) {
+    private void swipe(int direction) {
         String target = direction < 0 ? HA : SKYLIGHT;
-        String front = foreground(ctx);
+        String front = foreground(this, 7 * 86_400_000L);
         if (front == null) front = SKYLIGHT;   // nothing recorded yet: assume the home screen
         Log.i(TAG, "swipe " + (direction < 0 ? "left" : "right") + "; in front: " + front);
         if (target.equals(front)) return;
-        Intent i;
-        if (target.equals(HA)) {
-            i = ctx.getPackageManager().getLaunchIntentForPackage(HA);
-            if (i == null) {
-                Log.w(TAG, HA + " is not installed");
-                return;
-            }
-        } else {
-            // The Skylight app is the home screen.
-            i = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);
+        Intent i = getPackageManager().getLaunchIntentForPackage(target);
+        if (i == null) {
+            Log.w(TAG, target + " is not installed");
+            return;
         }
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
-        // Slide the way the fingers moved: the new app comes in from the side they moved away from.
-        boolean left = direction < 0;
-        ctx.startActivity(i, ActivityOptions.makeCustomAnimation(ctx,
-                anim(ctx, left ? "slide_in_right" : "slide_in_left"),
-                anim(ctx, left ? "slide_out_left" : "slide_out_right")).toBundle());
+        slider.slide(front, target, direction, () -> startActivity(i),
+                () -> target.equals(foreground(this, 10_000)));
     }
 
-    /** An animation from res/anim (looked up by name: the build doesn't generate R). */
-    private static int anim(Context ctx, String name) {
-        return ctx.getResources().getIdentifier(name, "anim", ctx.getPackageName());
-    }
-
-    /** The package of the last activity brought to the front, from the usage events of the last week. */
-    private static String foreground(Context ctx) {
+    /** The package of the last activity brought to the front in the last `ms`, or null. */
+    private static String foreground(Context ctx, long ms) {
         UsageStatsManager usm = ctx.getSystemService(UsageStatsManager.class);
         long now = System.currentTimeMillis();
-        UsageEvents events = usm.queryEvents(now - 7 * 86_400_000L, now);
+        UsageEvents events = usm.queryEvents(now - ms, now);
         UsageEvents.Event e = new UsageEvents.Event();
         String last = null;
         while (events.hasNextEvent()) {
