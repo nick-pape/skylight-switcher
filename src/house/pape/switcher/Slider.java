@@ -38,8 +38,13 @@ import java.util.Map;
  */
 class Slider {
     private static final String TAG = "SkylightSwitcher";
-    /** The slide; then, once the target app is in front, time for the system's transition to finish under the overlay; and the longest to wait for the app. */
-    private static final int SLIDE_MS = 300, SETTLE_MS = 350, GIVE_UP_MS = 3000, POLL_MS = 50;
+    /**
+     * The slide; how long the screen under the overlay must hold still before the overlay
+     * comes off; the longest to keep it up; and how often to check.
+     */
+    private static final int SLIDE_MS = 300, STILL_MS = 250, GIVE_UP_MS = 4000, POLL_MS = 50;
+    /** The overlay has GRID x GRID single transparent pixels to look through; see Peepholes. */
+    private static final int GRID = 8;
 
     private final Context ctx;
     private final WindowManager wm;
@@ -52,6 +57,9 @@ class Slider {
     private ImageReader reader;
     private Image latest;
     private FrameLayout overlay;
+    /** While sliding: the screen under the overlay, as seen through the peepholes, and since when. */
+    private int[] under;
+    private long underSince;
 
     Slider(Context ctx) {
         this.ctx = ctx;
@@ -72,6 +80,7 @@ class Slider {
         projection.registerCallback(new MediaProjection.Callback() {
             @Override
             public void onStop() {
+                if (projection != p) return;   // one we replaced
                 Log.w(TAG, "screen capture stopped");
                 projection = null;
                 stop();
@@ -82,7 +91,13 @@ class Slider {
             Image img = r.acquireLatestImage();
             if (img == null) return;
             if (overlay != null) {
-                img.close();   // a frame of our own overlay
+                // The overlay, with the screen under it showing through the peepholes.
+                int[] seen = sample(img);
+                img.close();
+                if (distance(seen, under) > 0) {
+                    under = seen;
+                    underSince = SystemClock.uptimeMillis();
+                }
                 return;
             }
             if (latest != null) latest.close();
@@ -125,14 +140,19 @@ class Slider {
         in.setTranslationX(-direction * width);
         overlay.addView(out);
         overlay.addView(in);
+        overlay.addView(new Peepholes());
+        int[] fromLooks = sample(current), toLooks = sample(next);
+        under = fromLooks;
+        underSince = SystemClock.uptimeMillis();
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                         | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-                PixelFormat.OPAQUE);
+                PixelFormat.TRANSLUCENT);   // for the peepholes
         lp.windowAnimations = 0;
         FrameLayout shown = overlay;
+        long giveUp = SystemClock.uptimeMillis() + GIVE_UP_MS;
         wm.addView(shown, lp);
         // Once the overlay is on screen, switch underneath it and slide.
         main.postDelayed(() -> {
@@ -147,23 +167,85 @@ class Slider {
             a.addListener(new AnimatorListenerAdapter() {
                 @Override
                 public void onAnimationEnd(Animator animation) {
-                    removeWhen(shown, arrived, SystemClock.uptimeMillis() + GIVE_UP_MS);
+                    removeWhen(shown, arrived, fromLooks, toLooks, giveUp);
                 }
             });
             a.start();
         }, 32);
     }
 
-    /** Removes the overlay once the target app is in front and its transition has played. */
-    private void removeWhen(FrameLayout shown, java.util.function.BooleanSupplier arrived, long giveUp) {
-        if (arrived.getAsBoolean() || SystemClock.uptimeMillis() > giveUp) {
-            main.postDelayed(() -> {
-                wm.removeView(shown);
-                overlay = null;
-            }, SETTLE_MS);
+    /**
+     * Removes the overlay once the screen under it shows the target app and has held still,
+     * i.e. the app has drawn and the system's transition has played. The app being in front
+     * isn't enough: the Skylight app, after sitting behind Home Assistant for a while, takes
+     * a second or more to draw again, and the system's transition only plays after that.
+     */
+    private void removeWhen(FrameLayout shown, java.util.function.BooleanSupplier arrived,
+                            int[] fromLooks, int[] toLooks, long giveUp) {
+        long now = SystemClock.uptimeMillis();
+        boolean done = arrived.getAsBoolean() && now - underSince > STILL_MS
+                && distance(under, toLooks) < distance(under, fromLooks);
+        if (done || now > giveUp) {
+            Log.i(TAG, "slide done" + (done ? "" : " (gave up waiting)"));
+            wm.removeView(shown);
+            overlay = null;
+            under = null;
         } else {
-            main.postDelayed(() -> removeWhen(shown, arrived, giveUp), POLL_MS);
+            main.postDelayed(() -> removeWhen(shown, arrived, fromLooks, toLooks, giveUp), POLL_MS);
         }
+    }
+
+    /** Single transparent pixels in a grid across the overlay, too small to notice. */
+    private class Peepholes extends android.view.View {
+        private final android.graphics.Paint clear = new android.graphics.Paint();
+
+        Peepholes() {
+            super(ctx);
+            clear.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.CLEAR));
+            setLayoutParams(new FrameLayout.LayoutParams(width, height));
+        }
+
+        @Override
+        protected void onDraw(android.graphics.Canvas c) {
+            for (int j = 0; j < GRID; j++)
+                for (int i = 0; i < GRID; i++)
+                    c.drawRect(peepX(i), peepY(j), peepX(i) + 1, peepY(j) + 1, clear);
+        }
+    }
+
+    private int peepX(int i) { return (2 * i + 1) * width / (2 * GRID); }
+    private int peepY(int j) { return (2 * j + 1) * height / (2 * GRID); }
+
+    /** The screen at the peepholes, as RGB. */
+    private int[] sample(Image img) {
+        Image.Plane plane = img.getPlanes()[0];
+        ByteBuffer buf = plane.getBuffer();
+        int[] rgb = new int[GRID * GRID];
+        for (int j = 0; j < GRID; j++)
+            for (int i = 0; i < GRID; i++) {
+                int at = peepY(j) * plane.getRowStride() + peepX(i) * plane.getPixelStride();
+                rgb[j * GRID + i] = (buf.get(at) & 0xff) << 16 | (buf.get(at + 1) & 0xff) << 8 | (buf.get(at + 2) & 0xff);
+            }
+        return rgb;
+    }
+
+    private int[] sample(Bitmap b) {
+        int[] rgb = new int[GRID * GRID];
+        for (int j = 0; j < GRID; j++)
+            for (int i = 0; i < GRID; i++)
+                rgb[j * GRID + i] = b.getPixel(peepX(i), peepY(j)) & 0xffffff;
+        return rgb;
+    }
+
+    /** How different two samples are, ignoring small differences in colour. */
+    private static int distance(int[] a, int[] b) {
+        int d = 0;
+        for (int k = 0; k < a.length; k++)
+            for (int shift = 0; shift <= 16; shift += 8) {
+                int diff = Math.abs((a[k] >> shift & 0xff) - (b[k] >> shift & 0xff));
+                if (diff > 12) d += diff;
+            }
+        return d;
     }
 
     private ImageView image(Bitmap b) {
